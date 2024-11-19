@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
-
+from datetime import date, datetime
+from sqlalchemy.sql import extract
 # Inicializar Flask y SQLAlchemy
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:123@localhost:5432/postgres'
@@ -40,14 +40,14 @@ class Pago(db.Model):
 # Función para obtener el monto del gasto común según el tipo de departamento
 def obtener_monto_por_tipo(tipo_departamento):
     # Definir el monto según el tipo de departamento
-    if tipo_departamento == "Residencial":
-        return 100.00  # Ejemplo de monto para residencial
-    elif tipo_departamento == "Comercial":
-        return 200.00  # Ejemplo de monto para comercial
+    if tipo_departamento == "Duplex":
+        return 100.000  # Ejemplo de monto para residencial
+    elif tipo_departamento == "Home studio":
+        return 70.000  # Ejemplo de monto para comercial
     elif tipo_departamento == "Oficina":
-        return 150.00  # Ejemplo de monto para oficina
+        return 70.000  # Ejemplo de monto para oficina
     else:
-        return 120.00  # Valor predeterminado
+        return 50.000  # Valor predeterminado
 
 
 
@@ -108,92 +108,170 @@ def listar_departamentos():
 # Endpoint para generar los gastos comunes
 @app.route('/generar_gastos', methods=['POST'])
 def generar_gastos():
-    data = request.get_json()
-    tipo_carga = data['tipo_carga']  # 'mes' o 'año'
-    periodo = data['periodo']  # Formato: 'YYYY-MM'
-    
-    if tipo_carga == 'mes':
-        fecha = datetime.strptime(periodo, "%Y-%m")
+    try:
+        # Obtener parámetros del request
+        data = request.get_json()
+        mes = data.get('mes')
+        anio = data.get('anio')
+
+        if not anio:
+            return jsonify({"error": "El año es obligatorio"}), 400
+
+        # Validar rango de mes si se incluye
+        if mes and (mes < 1 or mes > 12):
+            return jsonify({"error": "El mes debe estar entre 1 y 12"}), 400
+
+        # Obtener todos los departamentos
         departamentos = Departamento.query.all()
-        for depto in departamentos:
-            monto = obtener_monto_por_tipo(depto.tipo_departamento)
-            gasto = GastoComun(departamento_id=depto.id, periodo=fecha, monto=monto)
-            db.session.add(gasto)
+        if not departamentos:
+            return jsonify({"error": "No hay departamentos registrados"}), 400
+
+        # Crear gastos por mes o por todo el año
+        gastos_generados = []
+        meses = [mes] if mes else range(1, 13)  # Mes específico o todos los meses
+        for m in meses:
+            for departamento in departamentos:
+                # Verificar si el gasto ya existe
+                periodo = date(anio, m, 1)
+                gasto_existente = GastoComun.query.filter_by(
+                    departamento_id=departamento.id,
+                    periodo=periodo
+                ).first()
+
+                if not gasto_existente:
+                    # Crear gasto nuevo (montos diferenciados si aplica)
+                    monto = departamento.monto_fijo if hasattr(departamento, 'monto_fijo') else 50000  # Por ejemplo
+                    nuevo_gasto = GastoComun(
+                        departamento_id=departamento.id,
+                        periodo=periodo,
+                        monto=monto,
+                        pagado=False
+                    )
+                    db.session.add(nuevo_gasto)
+                    gastos_generados.append({
+                        "departamento_id": departamento.id,
+                        "periodo": periodo.strftime("%Y-%m"),
+                        "monto": monto
+                    })
+
         db.session.commit()
-        return jsonify({"message": "Gastos comunes generados correctamente."}), 200
-    elif tipo_carga == 'año':
-        fecha_inicio = datetime.strptime(periodo, "%Y")
-        for mes in range(1, 13):
-            fecha_mes = fecha_inicio.replace(month=mes)
-            departamentos = Departamento.query.all()
-            for depto in departamentos:
-                monto = obtener_monto_por_tipo(depto.tipo_departamento)
-                gasto = GastoComun(departamento_id=depto.id, periodo=fecha_mes, monto=monto)
-                db.session.add(gasto)
-        db.session.commit()
-        return jsonify({"message": "Gastos comunes generados para todo el año."}), 200
-    else:
-        return jsonify({"error": "Tipo de carga no válido."}), 400
+
+        if not gastos_generados:
+            return jsonify({"message": "Todos los gastos ya estaban registrados"}), 200
+
+        return jsonify({"gastos_generados": gastos_generados}), 201
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 # Endpoint para marcar un gasto como pagado
 @app.route('/marcar_como_pagado', methods=['POST'])
 def marcar_como_pagado():
-    data = request.get_json()
-    departamento_id = data['departamento_id']
-    periodo = data['periodo']  # Formato: 'YYYY-MM'
-    fecha_pago = data['fecha_pago']  # Formato: 'YYYY-MM-DD'
+    try:
+        # Obtener parámetros del request
+        data = request.get_json()
+        departamento_id = data.get('departamento_id')
+        anio = data.get('anio')
+        mes = data.get('mes')
+        fecha_pago = datetime.now().date()  # Fecha de pago actual
 
-    fecha = datetime.strptime(periodo, "%Y-%m")
-    pago = Pago.query.filter_by(departamento_id=departamento_id, periodo=fecha).first()
+        if not (departamento_id and anio and mes):
+            return jsonify({"error": "Los campos 'departamento_id', 'anio' y 'mes' son obligatorios"}), 400
 
-    if pago:
-        return jsonify({"message": "Pago duplicado"}), 400
+        # Validar si el gasto existe
+        periodo = date(anio, mes, 1)
+        gasto = GastoComun.query.filter_by(departamento_id=departamento_id, periodo=periodo).first()
 
-    gasto = GastoComun.query.filter_by(departamento_id=departamento_id, periodo=fecha).first()
+        if not gasto:
+            return jsonify({"error": "No existe un gasto para el período indicado"}), 404
 
-    if gasto and not gasto.pagado:
-        gasto.pagado = True
-        gasto.fecha_pago = datetime.strptime(fecha_pago, "%Y-%m-%d")
+        # Validar estado del gasto
+        if gasto.pagado:
+            return jsonify({
+                "departamento_id": departamento_id,
+                "fecha_cancelacion": gasto.fecha_pago.strftime("%Y-%m-%d"),
+                "periodo": periodo.strftime("%Y-%m"),
+                "mensaje": "Pago duplicado"
+            }), 400
 
-        # Registrar el pago
-        pago = Pago(departamento_id=departamento_id, monto=gasto.monto, periodo=fecha, fecha_pago=gasto.fecha_pago)
+        # Crear el pago
+        pago = Pago(
+            departamento_id=departamento_id,
+            monto=gasto.monto,
+            periodo=periodo,
+            fecha_pago=fecha_pago
+        )
+
+        # Agregar el pago a la base de datos
         db.session.add(pago)
+
+        # Marcar el gasto como pagado
+        gasto.pagado = True
+        gasto.fecha_pago = fecha_pago
+
+        # Confirmar los cambios en la base de datos
         db.session.commit()
 
-        # Verificar si el pago fue dentro o fuera de plazo
-        mensaje = "Pago exitoso dentro del plazo" if gasto.fecha_pago <= datetime.now() else "Pago exitoso fuera de plazo"
-        
         return jsonify({
-            "departamento": departamento_id,
-            "periodo": periodo,
-            "fecha_pago": gasto.fecha_pago.strftime("%Y-%m-%d"),
-            "mensaje": mensaje
+            "departamento_id": departamento_id,
+            "fecha_cancelacion": fecha_pago.strftime("%Y-%m-%d"),
+            "periodo": periodo.strftime("%Y-%m"),
+            "mensaje": "Pago exitoso"
         }), 200
-    else:
-        return jsonify({"message": "Gasto no encontrado o ya pagado."}), 404
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 
 # Endpoint para obtener los gastos comunes pendientes
 @app.route('/gastos_pendientes', methods=['GET'])
 def gastos_pendientes():
-    mes = request.args.get('mes', type=int)
-    anio = request.args.get('anio', type=int)
-    fecha = datetime(anio, mes, 1)
+    try:
+        # Obtener parámetros del request
+        mes = request.args.get('mes', type=int)
+        anio = request.args.get('anio', type=int)
 
-    gastos_pendientes = GastoComun.query.filter(GastoComun.periodo <= fecha, GastoComun.pagado == False).all()
+        # Validar parámetros
+        if not mes or not anio:
+            return jsonify({"error": "Parámetros 'mes' y 'anio' son obligatorios"}), 400
 
-    if not gastos_pendientes:
-        return jsonify({"mensaje": "Sin montos pendientes"}), 200
+        if mes < 1 or mes > 12:
+            return jsonify({"error": "El mes debe estar entre 1 y 12"}), 400
 
-    gastos = []
-    for gasto in gastos_pendientes:
-        departamento = Departamento.query.get(gasto.departamento_id)
-        gastos.append({
-            "departamento": departamento.numero_departamento,
-            "periodo": gasto.periodo.strftime("%Y-%m"),
-            "monto": str(gasto.monto)
-        })
-    
-    return jsonify(gastos), 200
+        # Filtrar gastos no pagados desde enero hasta el mes indicado del año
+        gastos = (
+            GastoComun.query
+            .filter(
+                GastoComun.pagado == False,
+                extract('year', GastoComun.periodo) == anio,
+                extract('month', GastoComun.periodo) <= mes
+            )
+            .order_by(GastoComun.periodo.asc())
+            .all()
+        )
+
+        # Si no hay gastos pendientes
+        if not gastos:
+            return jsonify({"message": f"No hay gastos pendientes para {anio}-{str(mes).zfill(2)}"}), 200
+
+        # Preparar respuesta con los gastos sin 'fecha_limite'
+        gastos_pendientes = []
+        for gasto in gastos:
+            gastos_pendientes.append({
+                "departamento_id": gasto.departamento_id,
+                "periodo": gasto.periodo.strftime("%Y-%m"),
+                "monto": gasto.monto
+            })
+
+        # Devolver lista de gastos pendientes
+        return jsonify(gastos_pendientes), 200
+
+    except Exception as e:
+        # Manejo de errores internos
+        return jsonify({"error": str(e)}), 500
+
 
 # Envolver la creación de las tablas dentro del contexto de la aplicación
 if __name__ == '__main__':
