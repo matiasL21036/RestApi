@@ -2,12 +2,15 @@ from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from datetime import date, datetime
 from sqlalchemy.sql import extract
+from flask_cors import CORS  # Importa la extensión CORS
 # Inicializar Flask y SQLAlchemy
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:123@localhost:5432/postgres'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
+
+CORS(app) 
 # Modelo Departamento
 class Departamento(db.Model):
     __tablename__ = 'departamentos'
@@ -17,7 +20,7 @@ class Departamento(db.Model):
     tipo_departamento = db.Column(db.String(255), nullable=False)  # Tipo del departamento
     gastos_comunes = db.relationship('GastoComun', backref='departamento', lazy=True)
     pagos = db.relationship('Pago', backref='departamento', lazy=True)
-
+usuario = db.relationship('Usuario', backref='departamento', uselist=False)
 # Modelo Gasto Común
 class GastoComun(db.Model):
     __tablename__ = 'gastos_comunes'
@@ -36,6 +39,18 @@ class Pago(db.Model):
     monto = db.Column(db.Numeric(10, 2), nullable=False)
     periodo = db.Column(db.Date, nullable=False)
     fecha_pago = db.Column(db.Date, nullable=False)
+    
+    
+class Usuario(db.Model):
+    __tablename__ = 'usuarios'
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(255), nullable=False)
+    rut = db.Column(db.String(12), unique=True, nullable=False)
+    correo = db.Column(db.String(255))
+    contrasena = db.Column(db.String(255), nullable=False)
+    es_admin = db.Column(db.Boolean, default=False)
+    departamento_id = db.Column(db.Integer, db.ForeignKey('departamentos.id'), nullable=True)   
+    departamento = db.relationship('Departamento', backref='usuario', uselist=False) 
 
 # Función para obtener el monto del gasto común según el tipo de departamento
 def obtener_monto_por_tipo(tipo_departamento):
@@ -49,6 +64,7 @@ def obtener_monto_por_tipo(tipo_departamento):
     else:
         return 50.000  # Valor predeterminado
 
+# Modelo Usuario
 
 
 # Endpoint para crear un nucevo departamento
@@ -85,24 +101,59 @@ def crear_departamento():
 @app.route('/departamentos', methods=['GET'])
 def listar_departamentos():
     departamentos = Departamento.query.all()
-    
-    # Verificar si existen departamentos
+
     if not departamentos:
         return jsonify({"mensaje": "No se encontraron departamentos"}), 200
-    
-    # Formatear la respuesta
+
     lista_departamentos = []
-    for depto in departamentos:
+    for departamento in departamentos:
+        # Accedemos al primer usuario en la lista (si existe)
+        usuario = departamento.usuario[0] if departamento.usuario else None
         lista_departamentos.append({
-            "id": depto.id,
-            "numero_departamento": depto.numero_departamento,
-            "nombre": depto.nombre,
-            "tipo_departamento": depto.tipo_departamento
+            "id": departamento.id,
+            "numero_departamento": departamento.numero_departamento,
+            "nombre": departamento.nombre,
+            "tipo_departamento": departamento.tipo_departamento,
+            "rut_usuario": usuario.rut if usuario else None  # Añadir el rut del usuario
         })
-    
+
     return jsonify(lista_departamentos), 200
 
 
+# Endpoint para modificar un departamento
+@app.route('/departamentos_modificar/<int:id>', methods=['PUT'])
+def modificar_departamento(id):
+    data = request.get_json()
+    departamento = Departamento.query.get(id)
+
+    if not departamento:
+        return jsonify({"error": "Departamento no encontrado"}), 404
+
+    departamento.numero_departamento = data.get('numero_departamento', departamento.numero_departamento)
+    departamento.nombre = data.get('nombre', departamento.nombre)
+    departamento.tipo_departamento = data.get('tipo_departamento', departamento.tipo_departamento)
+
+    db.session.commit()
+
+    return jsonify({
+        "id": departamento.id,
+        "numero_departamento": departamento.numero_departamento,
+        "nombre": departamento.nombre,
+        "tipo_departamento": departamento.tipo_departamento
+    }), 200
+    
+    # Endpoint para eliminar un departamento
+@app.route('/departamentos_eliminar/<int:id>', methods=['DELETE'])
+def eliminar_departamento(id):
+    departamento = Departamento.query.get(id)
+
+    if not departamento:
+        return jsonify({"error": "Departamento no encontrado"}), 404
+
+    db.session.delete(departamento)
+    db.session.commit()
+
+    return jsonify({"mensaje": "Departamento eliminado exitosamente"}), 200
 
 
 # Endpoint para generar los gastos comunes
@@ -165,28 +216,76 @@ def generar_gastos():
         return jsonify({"error": str(e)}), 500
 
 
+# Endpoint para listar todos los gastos comunes
+@app.route('/gastos_comunes', methods=['GET'])
+def listar_gastos_comunes():
+    filtro_pagado = request.args.get('pagado', type=bool, default=None)
+
+    # Filtrar por estado de pagado
+    if filtro_pagado is not None:
+        gastos = GastoComun.query.filter_by(pagado=filtro_pagado).all()
+    else:
+        gastos = GastoComun.query.all()
+
+    if not gastos:
+        return jsonify({"mensaje": "No se encontraron gastos comunes"}), 200
+
+    lista_gastos = []
+    for gasto in gastos:
+        # Obtener el departamento asociado con el gasto común
+        departamento = Departamento.query.filter_by(id=gasto.departamento_id).first()
+
+        # Verificar si el departamento existe
+        if departamento:
+            # Buscar el usuario que corresponde al departamento_id del departamento
+            usuario = Usuario.query.filter_by(departamento_id=departamento.id).first()
+            if usuario:
+                rut_propietario = usuario.rut  # Obtener el RUT del propietario
+            else:
+                rut_propietario = None  # Si no se encuentra un usuario, asignar None
+        else:
+            rut_propietario = None  # Si no se encuentra un departamento, asignar None
+
+        # Agregar el gasto a la lista
+        lista_gastos.append({
+            "departamento_id": gasto.departamento_id,
+            "periodo": gasto.periodo.strftime("%Y-%m"),
+            "monto": gasto.monto,
+            "pagado": gasto.pagado,
+            "rut_propietario": rut_propietario  # Incluir el RUT del propietario
+        })
+
+    return jsonify(lista_gastos), 200
+
+
+
+
+
 # Endpoint para marcar un gasto como pagado
 @app.route('/marcar_como_pagado', methods=['POST'])
 def marcar_como_pagado():
     try:
-        # Obtener parámetros del request
         data = request.get_json()
         departamento_id = data.get('departamento_id')
         anio = data.get('anio')
         mes = data.get('mes')
-        fecha_pago = datetime.now().date()  # Fecha de pago actual
+        fecha_pago = datetime.now().date()
+
+        # Convertir 'anio' y 'mes' a enteros
+        anio = int(anio)
+        mes = int(mes)
 
         if not (departamento_id and anio and mes):
-            return jsonify({"error": "Los campos 'departamento_id', 'anio' y 'mes' son obligatorios"}), 400
+            return jsonify({"error": "Faltan parámetros: 'departamento_id', 'anio' o 'mes'"}), 400
 
-        # Validar si el gasto existe
+        # Validación: Verifica si el gasto existe para ese departamento, año y mes
         periodo = date(anio, mes, 1)
         gasto = GastoComun.query.filter_by(departamento_id=departamento_id, periodo=periodo).first()
 
         if not gasto:
-            return jsonify({"error": "No existe un gasto para el período indicado"}), 404
+            return jsonify({"error": "No se encontró un gasto para el periodo indicado"}), 404
 
-        # Validar estado del gasto
+        # Verifica si el gasto ya está pagado
         if gasto.pagado:
             return jsonify({
                 "departamento_id": departamento_id,
@@ -203,14 +302,13 @@ def marcar_como_pagado():
             fecha_pago=fecha_pago
         )
 
-        # Agregar el pago a la base de datos
         db.session.add(pago)
 
-        # Marcar el gasto como pagado
+        # Marcar como pagado el gasto
         gasto.pagado = True
         gasto.fecha_pago = fecha_pago
 
-        # Confirmar los cambios en la base de datos
+        # Confirmar transacción
         db.session.commit()
 
         return jsonify({
@@ -221,7 +319,7 @@ def marcar_como_pagado():
         }), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Error en el servidor: {str(e)}"}), 500
 
 
 
@@ -271,6 +369,123 @@ def gastos_pendientes():
     except Exception as e:
         # Manejo de errores internos
         return jsonify({"error": str(e)}), 500
+
+
+
+# Endpoint para crear un nuevo usuario
+@app.route('/usuarios_crear', methods=['POST'])
+def crear_usuario():
+    data = request.get_json()
+    
+    if not data.get('nombre') or not data.get('rut') or not data.get('contrasena'):
+        return jsonify({"error": "Faltan datos requeridos"}), 400
+
+    # Verificar si el RUT ya existe
+    rut_existente = Usuario.query.filter_by(rut=data['rut']).first()
+    if rut_existente:
+        return jsonify({"error": "El RUT ya está registrado"}), 400
+
+    nuevo_usuario = Usuario(
+        nombre=data['nombre'],
+        rut=data['rut'],
+        correo=data.get('correo'),
+        contrasena=data['contrasena'],
+        es_admin=data.get('es_admin', False),
+        departamento_id=data.get('departamento_id')
+    )
+
+    db.session.add(nuevo_usuario)
+    db.session.commit()
+
+    return jsonify({
+        "id": nuevo_usuario.id,
+        "nombre": nuevo_usuario.nombre,
+        "rut": nuevo_usuario.rut,
+        "correo": nuevo_usuario.correo,
+        "es_admin": nuevo_usuario.es_admin,
+        "departamento_id": nuevo_usuario.departamento_id
+    }), 201
+
+# Endpoint para listar todos los usuarios
+@app.route('/usuarios', methods=['GET'])
+def listar_usuarios():
+    usuarios = Usuario.query.all()
+    if not usuarios:
+        return jsonify({"mensaje": "No se encontraron usuarios"}), 200
+
+    lista_usuarios = []
+    for usuario in usuarios:
+        lista_usuarios.append({
+            "id": usuario.id,
+            "nombre": usuario.nombre,
+            "rut": usuario.rut,
+            "correo": usuario.correo,
+            "es_admin": usuario.es_admin,
+            "departamento_id": usuario.departamento_id
+        })
+    
+    return jsonify(lista_usuarios), 200
+
+# Endpoint para modificar un usuario
+@app.route('/usuarios_modificar/<int:id>', methods=['PUT'])
+def modificar_usuario(id):
+    data = request.get_json()
+    usuario = Usuario.query.get(id)
+
+    if not usuario:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+
+    usuario.nombre = data.get('nombre', usuario.nombre)
+    usuario.rut = data.get('rut', usuario.rut)
+    usuario.correo = data.get('correo', usuario.correo)
+    usuario.contrasena = data.get('contrasena', usuario.contrasena)
+    usuario.es_admin = data.get('es_admin', usuario.es_admin)
+    usuario.departamento_id = data.get('departamento_id', usuario.departamento_id)
+
+    db.session.commit()
+
+    return jsonify({
+        "id": usuario.id,
+        "nombre": usuario.nombre,
+        "rut": usuario.rut,
+        "correo": usuario.correo,
+        "es_admin": usuario.es_admin,
+        "departamento_id": usuario.departamento_id
+    }), 200
+
+# Endpoint para eliminar un usuario
+@app.route('/usuarios_eliminar/<int:id>', methods=['DELETE'])
+def eliminar_usuario(id):
+    usuario = Usuario.query.get(id)
+
+    if not usuario:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+
+    db.session.delete(usuario)
+    db.session.commit()
+
+    return jsonify({"mensaje": "Usuario eliminado exitosamente"}), 200
+
+@app.route('/api/gastos_pendientes/<string:rut>', methods=['GET'])
+def get_gastos_pendientes(rut):
+    usuario = Usuario.query.filter_by(rut=rut).first()
+
+    if not usuario:
+        return jsonify({'message': 'Usuario no encontrado'}), 404
+
+    gastos = GastoComun.query.filter_by(departamento_id=usuario.departamento_id, pagado=False).all()
+
+    if not gastos:
+        return jsonify({'message': 'No se encontraron gastos pendientes'}), 404
+
+    # Convertir las fechas a formato más manejable (YYYY-MM-DD)
+    gastos_pendientes = [{
+        'periodo': gasto.periodo.strftime('%Y-%m-%d'),  # Formato de fecha
+        'monto': str(gasto.monto)
+    } for gasto in gastos]
+
+    return jsonify(gastos_pendientes)
+
 
 
 # Envolver la creación de las tablas dentro del contexto de la aplicación
