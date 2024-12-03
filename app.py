@@ -156,7 +156,6 @@ def eliminar_departamento(id):
     return jsonify({"mensaje": "Departamento eliminado exitosamente"}), 200
 
 
-# Endpoint para generar los gastos comunes
 @app.route('/generar_gastos', methods=['POST'])
 def generar_gastos():
     try:
@@ -168,9 +167,21 @@ def generar_gastos():
         if not anio:
             return jsonify({"error": "El año es obligatorio"}), 400
 
+        # Convertir 'anio' a entero explícitamente
+        try:
+            anio = int(anio)
+        except ValueError:
+            return jsonify({"error": "El año debe ser un número entero válido."}), 400
+
         # Validar rango de mes si se incluye
-        if mes and (mes < 1 or mes > 12):
-            return jsonify({"error": "El mes debe estar entre 1 y 12"}), 400
+        if mes is not None:
+            try:
+                mes = int(mes)
+            except ValueError:
+                return jsonify({"error": "El mes debe ser un número entero válido."}), 400
+            
+            if mes < 1 or mes > 12:
+                return jsonify({"error": "El mes debe estar entre 1 y 12"}), 400
 
         # Obtener todos los departamentos
         departamentos = Departamento.query.all()
@@ -191,7 +202,7 @@ def generar_gastos():
 
                 if not gasto_existente:
                     # Crear gasto nuevo (montos diferenciados si aplica)
-                    monto = departamento.monto_fijo if hasattr(departamento, 'monto_fijo') else 50000  # Por ejemplo
+                    monto = departamento.monto_fijo if hasattr(departamento, 'monto_fijo') else 50000  # Ejemplo de monto fijo
                     nuevo_gasto = GastoComun(
                         departamento_id=departamento.id,
                         periodo=periodo,
@@ -205,7 +216,13 @@ def generar_gastos():
                         "monto": monto
                     })
 
-        db.session.commit()
+        # Intentar hacer commit en la base de datos
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()  # Hacer rollback en caso de error
+            print("Error al hacer commit:", e)
+            return jsonify({"error": "Error al guardar los gastos en la base de datos"}), 500
 
         if not gastos_generados:
             return jsonify({"message": "Todos los gastos ya estaban registrados"}), 200
@@ -213,8 +230,8 @@ def generar_gastos():
         return jsonify({"gastos_generados": gastos_generados}), 201
 
     except Exception as e:
+        print("Error al generar gastos:", e)  # Imprime el error en los logs del servidor
         return jsonify({"error": str(e)}), 500
-
 
 # Endpoint para listar todos los gastos comunes
 @app.route('/gastos_comunes', methods=['GET'])

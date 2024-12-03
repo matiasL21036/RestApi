@@ -6,6 +6,10 @@ import DepartamentoList from './component/DepartamentoList';
 import GastoList from './component/GastoList';
 import UsuarioList from './component/UsuarioList';
 import MarcarComoPagadoForm from './component/MarcarComoPagadoForm';
+import CrearDepartamentoForm from './component/CrearDepartamentoForm';
+import CrearUsuarioForm from './component/CrearUsuarioForm';
+import GenerarGastosForm from './component/GenerarGastosForm';
+
 function App() {
   return (
     <Router>
@@ -20,6 +24,9 @@ function App() {
       <Route path="/gastos" element={<GastoList />} />
       <Route path="/usuarios" element={<UsuarioList />} />
       <Route path="/marcar-como-pagado" element={<MarcarComoPagadoForm />} />
+      <Route path="/Crear_departamento" element={<CrearDepartamentoForm />} />
+      <Route path="/Crear_usuario" element={<CrearUsuarioForm />} />
+      <Route path="/Crear_gastos" element={<GenerarGastosForm />} />
     </Routes>
   </Router>
 );
