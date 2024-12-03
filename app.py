@@ -274,9 +274,31 @@ def listar_gastos_comunes():
 
     return jsonify(lista_gastos), 200
 
+@app.route('/gastos_comunes_eliminar/<int:id>', methods=['DELETE'])
+def eliminar_gasto_comun(id):
+    gasto = GastoComun.query.get(id)
 
+    if not gasto:
+        return jsonify({"error": "Gasto común no encontrado"}), 404
 
+    db.session.delete(gasto)
+    db.session.commit()
 
+    return jsonify({"mensaje": "Gasto común eliminado exitosamente"}), 200
+
+@app.route('/eliminar_todos_los_gastos', methods=['DELETE'])
+def eliminar_todos_los_gastos():
+    try:
+        # Eliminar todos los registros de la tabla GastoComun
+        GastoComun.query.delete()
+
+        # Confirmar los cambios en la base de datos
+        db.session.commit()
+
+        return jsonify({"mensaje": "Todos los gastos comunes han sido eliminados exitosamente."}), 200
+    except Exception as e:
+        db.session.rollback()  # Hacer rollback en caso de error
+        return jsonify({"error": f"Error al eliminar los gastos comunes: {str(e)}"}), 500
 
 # Endpoint para marcar un gasto como pagado
 @app.route('/marcar_como_pagado', methods=['POST'])
