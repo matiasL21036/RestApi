@@ -1,8 +1,9 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
-import axios from "axios";  // Asegúrate de tener axios instalado
+import axios from "axios";
+import { useNavigate } from "react-router-dom";  // Importa useNavigate
 
-function MarcarComoPagadoForm({ gasto = {}, onCancel }) {
+function MarcarComoPagadoForm({ gasto = {}, }) {
   const [formData, setFormData] = useState({
     departamento_id: gasto.departamento_id || "",
     periodo: gasto.periodo || "",
@@ -10,6 +11,8 @@ function MarcarComoPagadoForm({ gasto = {}, onCancel }) {
     anio: gasto.periodo ? new Date(gasto.periodo).getFullYear() : "",
     mes: gasto.periodo ? new Date(gasto.periodo).getMonth() + 1 : "",
   });
+
+  const navigate = useNavigate(); // Inicializa el hook para redirección
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -53,6 +56,9 @@ function MarcarComoPagadoForm({ gasto = {}, onCancel }) {
   
       // Si la respuesta es exitosa, muestra el mensaje
       alert(response.data.mensaje);
+
+      // Redirige al dashboard después de marcar el gasto como pagado
+      navigate("/dashboard"); // Redirige al dashboard o la ruta que desees
     } catch (error) {
       // Verifica el error
       console.error("Error en la solicitud:", error);
@@ -108,12 +114,12 @@ function MarcarComoPagadoForm({ gasto = {}, onCancel }) {
           Confirmar Pago
         </button>
         <button
-          type="button"
-          onClick={onCancel}
-          className="px-4 py-2 ml-4 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition"
-        >
-          Cancelar
-        </button>
+            type="button"
+            onClick={() => navigate("/dashboard")}
+            className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition"
+          >
+            Cancelar
+          </button>
       </form>
     </div>
   );

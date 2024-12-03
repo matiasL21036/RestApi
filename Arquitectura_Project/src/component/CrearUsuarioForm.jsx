@@ -54,7 +54,7 @@ function CrearUsuarioForm() {
         contrasena: "",
         departamento_id: "",
       });
-      navigate("/"); // Redirigir al dashboard después de crear el usuario
+      navigate("/dashboard"); // Redirigir al dashboard después de crear el usuario
     } catch (error) {
       console.error("Error al crear el usuario:", error);
       if (error.response) {
@@ -140,7 +140,7 @@ function CrearUsuarioForm() {
           </button>
           <button
             type="button"
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/dashboard")}
             className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition"
           >
             Cancelar

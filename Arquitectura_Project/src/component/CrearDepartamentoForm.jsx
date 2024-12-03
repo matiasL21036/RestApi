@@ -45,7 +45,7 @@ function CrearDepartamentoForm() {
       });
 
       // Redirigir al Dashboard después de crear el departamento
-      navigate("/");
+      navigate("/dashboard");
     } catch (error) {
       console.error("Error al crear el departamento:", error);
       if (error.response && error.response.data.error) {
@@ -106,7 +106,7 @@ function CrearDepartamentoForm() {
           </button>
           <button
             type="button"
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/dashboard")}
             className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition"
           >
             Cancelar

@@ -1,11 +1,14 @@
 import { useState } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom"; // Importamos useNavigate
 
 function GenerarGastosForm() {
   const [anio, setAnio] = useState("");
   const [mes, setMes] = useState(""); // Mes opcional
   const [error, setError] = useState(null);
   const [mensaje, setMensaje] = useState(null);
+  
+  const navigate = useNavigate(); // Inicializamos useNavigate
 
   const handleAnioChange = (e) => setAnio(e.target.value);
   const handleMesChange = (e) => setMes(e.target.value);
@@ -36,6 +39,11 @@ function GenerarGastosForm() {
       setError("Hubo un error al generar los gastos. Intenta nuevamente.");
       setMensaje(null); // Limpiar el mensaje de éxito
     }
+  };
+
+  // Función para manejar el clic en "Cancelar" y redirigir al dashboard
+  const handleCancel = () => {
+    navigate("/dashboard"); // Redirige al dashboard
   };
 
   return (
@@ -74,6 +82,13 @@ function GenerarGastosForm() {
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
           >
             Generar Gastos
+          </button>
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition"
+          >
+            Cancelar
           </button>
         </div>
       </form>
